@@ -61,7 +61,8 @@ class MainActivity : ComponentActivity() {
                 // While it redials, the stream screen stays up with its last picture under a "Reconnecting…" veil.
                 val mac = (state as? ClientState.Streaming)?.mac ?: (state as? ClientState.Reconnecting)?.mac
                 Immersive(mac != null)
-                if (mac != null) StreamScreen(client, prefs, mac.name, refresh, state as? ClientState.Reconnecting, usbSession = mac.host == UsbLink.HOST)
+                if (mac != null) StreamScreen(client, prefs, mac.name, refresh, state as? ClientState.Reconnecting,
+                    link = when { mac.host == UsbLink.HOST -> "USB"; mac.away -> "Away"; else -> "Wi-Fi" })
                 else ConnectScreen(client, discovery, saved, prefs, state)
             }
         }

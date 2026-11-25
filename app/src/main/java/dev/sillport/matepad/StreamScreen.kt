@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,7 +92,8 @@ class BarActions(val open: (Panel) -> Unit, val typing: () -> Unit, val hide: ()
 
 /** The picture and everything over it: floating bar, side rail, hidden handle, or laptop mode upright. */
 @Composable
-fun StreamScreen(client: SillClient, prefs: Prefs, macName: String, refreshRate: Int, reconnecting: ClientState.Reconnecting?, usbSession: Boolean) {
+fun StreamScreen(client: SillClient, prefs: Prefs, macName: String, refreshRate: Int, reconnecting: ClientState.Reconnecting?, link: String) {
+    val usbSession = link == "USB"
     val rtt by client.rttMs.collectAsState()
     var barVisible by remember { mutableStateOf(!prefs.autoHideBar) }
     var panel by remember { mutableStateOf(if (prefs.seenGuide) Panel.NONE else Panel.GUIDE) }
@@ -130,7 +132,7 @@ fun StreamScreen(client: SillClient, prefs: Prefs, macName: String, refreshRate:
                 Box(Modifier.fillMaxWidth().weight(0.46f), contentAlignment = Alignment.Center) {
                     Picture(client, prefs, macName, refreshRate, onToggleBar = {}, cursor = cursor)
                 }
-                CompactBar(client, actions, rtt, usbSession)
+                CompactBar(client, actions, rtt, link)
                 KeyRow(client)
                 Trackpad(client, prefs, Modifier.weight(0.54f).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
                     start = cursor, onCursor = { cursor = it })
@@ -138,7 +140,7 @@ fun StreamScreen(client: SillClient, prefs: Prefs, macName: String, refreshRate:
         } else if (barStyle == "side") {
             // Mockup 7: a rail on the left, the picture beside it.
             Row(Modifier.fillMaxSize()) {
-                SideRail(client, actions, rtt, usbSession)
+                SideRail(client, actions, rtt, link)
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     Picture(client, prefs, macName, refreshRate, onToggleBar = {}, cursor = null)
                 }
@@ -151,7 +153,7 @@ fun StreamScreen(client: SillClient, prefs: Prefs, macName: String, refreshRate:
             AnimatedVisibility(barVisible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
                 Box(Modifier.statusBarsPadding().padding(top = 10.dp).pointerInput(Unit) {
                     awaitPointerEventScope { while (true) { awaitPointerEvent(); poke++ } }
-                }) { FloatingBar(client, actions, rtt, usbSession, panel) }
+                }) { FloatingBar(client, actions, rtt, link, panel) }
             }
             AnimatedVisibility(!barVisible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
                 Box(Modifier.statusBarsPadding().width(140.dp).height(30.dp).clickable(role = Role.Button) { barVisible = true }
@@ -164,7 +166,7 @@ fun StreamScreen(client: SillClient, prefs: Prefs, macName: String, refreshRate:
             if (!barVisible && slow) Row(
                 Modifier.align(Alignment.BottomEnd).padding(16.dp).clip(RoundedCornerShape(999.dp)).background(C.Bar).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) { Dot(C.Amber); Text("${if (usbSession) "USB" else "Wi-Fi"} is slow · $rtt ms", color = C.Text1, fontSize = 12.sp) }
+            ) { Dot(C.Amber); Text("$link is slow · $rtt ms", color = C.Text1, fontSize = 12.sp) }
         }
 
         // Panels over the picture (mockups 8–11, 13).
@@ -230,25 +232,34 @@ private fun Picture(client: SillClient, prefs: Prefs, macName: String, refreshRa
             },
             modifier = Modifier.fillMaxSize(),
         )
-        // Laptop mode draws the pointer the trackpad moves (the Mac leaves its own out of the picture).
-        if (cursor != null) {
-            val x = with(density) { (maxWidth.toPx() * cursor.first).roundToInt() }
-            val y = with(density) { (maxHeight.toPx() * cursor.second).roundToInt() }
-            Icon(Icons.Rounded.NearMe, null, tint = Color.White,
+        // The Mac's own cursor: the Mac leaves it out of the video and sends its shape (kind 14) and,
+        // when its own mouse moves it, its place (kind 26); this tablet's input moves it too.
+        val at by client.pointerAt.collectAsState()
+        val shape by client.cursorShape.collectAsState()
+        val p = at
+        if (p != null) {
+            val x = with(density) { (maxWidth.toPx() * p.first).roundToInt() }
+            val y = with(density) { (maxHeight.toPx() * p.second).roundToInt() }
+            val s = shape
+            if (s != null) {
+                val hx = with(density) { s.hotX.dp.roundToPx() }; val hy = with(density) { s.hotY.dp.roundToPx() }
+                Image(s.image.asImageBitmap(), null, Modifier.offset { IntOffset(x - hx, y - hy) }.size(s.w.dp, s.h.dp))
+            } else Icon(Icons.Rounded.NearMe, null, tint = Color.White,
                 modifier = Modifier.offset { IntOffset(x - 6, y - 6) }.size(22.dp).rotate(-90f))
         }
     }
 }
 
 @Composable
-private fun ConnChip(rtt: Int?, usb: Boolean) {
+private fun ConnChip(rtt: Int?, link: String) {
+    val lit = link != "Wi-Fi" // USB and Away stand out
     Row(
-        Modifier.height(32.dp).clip(RoundedCornerShape(10.dp)).background(if (usb) C.AmberWash else C.Raised).padding(horizontal = 10.dp),
+        Modifier.height(32.dp).clip(RoundedCornerShape(10.dp)).background(if (lit) C.AmberWash else C.Raised).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(if (usb) Icons.Rounded.Usb else Icons.Rounded.Wifi, null, tint = if (usb) C.AmberSoft else C.Text2, modifier = Modifier.size(14.dp))
-        Text((if (usb) "USB" else "Wi-Fi") + (rtt?.let { " · $it ms" } ?: ""), color = if (usb) C.AmberSoft else C.Text2,
-            fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Icon(when (link) { "USB" -> Icons.Rounded.Usb; "Away" -> Icons.Rounded.Public; else -> Icons.Rounded.Wifi }, null,
+            tint = if (lit) C.AmberSoft else C.Text2, modifier = Modifier.size(14.dp))
+        Text(link + (rtt?.let { " · $it ms" } ?: ""), color = if (lit) C.AmberSoft else C.Text2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -285,7 +296,7 @@ private fun DesktopButton(client: SillClient, active: Boolean) {
 
 /** Mockup 5. */
 @Composable
-private fun FloatingBar(client: SillClient, a: BarActions, rtt: Int?, usb: Boolean, panel: Panel) {
+private fun FloatingBar(client: SillClient, a: BarActions, rtt: Int?, link: String, panel: Panel) {
     val windows by client.windows.collectAsState()
     val active by client.activeWindow.collectAsState()
     val menuBar by client.menuBar.collectAsState()
@@ -307,7 +318,7 @@ private fun FloatingBar(client: SillClient, a: BarActions, rtt: Int?, usb: Boole
         ) { Text((menuBar?.app?.ifEmpty { null } ?: "Menus") + " ▾", color = if (panel == Panel.MENUS) C.AmberSoft else C.Text1, fontSize = 14.sp) }
         if (clipOn) PasteButton(client, a)
         IconBtn(Icons.Rounded.Keyboard, "Keyboard") { a.typing() }
-        ConnChip(rtt, usb)
+        ConnChip(rtt, link)
         IconBtn(Icons.Rounded.ExpandLess, "Hide the bar", tint = C.Text2) { a.hide() }
         IconBtn(Icons.Rounded.MoreHoriz, "Settings", bg = if (panel == Panel.SETTINGS) C.AmberWash else Color.Transparent) { a.open(Panel.SETTINGS) }
         IconBtn(Icons.Rounded.PowerSettingsNew, "Disconnect", tint = C.Text2) { a.disconnect() }
@@ -326,7 +337,7 @@ private fun PasteButton(client: SillClient, a: BarActions) {
 
 /** Mockup 7. */
 @Composable
-private fun SideRail(client: SillClient, a: BarActions, rtt: Int?, usb: Boolean) {
+private fun SideRail(client: SillClient, a: BarActions, rtt: Int?, link: String) {
     val windows by client.windows.collectAsState()
     val active by client.activeWindow.collectAsState()
     val thumbs by client.thumbnails.collectAsState()
@@ -359,7 +370,7 @@ private fun SideRail(client: SillClient, a: BarActions, rtt: Int?, usb: Boolean)
         if (clipOn) PasteButton(client, a)
         IconBtn(Icons.Rounded.Keyboard, "Keyboard") { a.typing() }
         IconBtn(Icons.Rounded.MoreHoriz, "Settings") { a.open(Panel.SETTINGS) }
-        Text((if (usb) "USB" else "Wi-Fi") + (rtt?.let { "\n$it ms" } ?: ""), color = if (usb) C.AmberSoft else C.Text2,
+        Text(link + (rtt?.let { "\n$it ms" } ?: ""), color = if (link != "Wi-Fi") C.AmberSoft else C.Text2,
             fontSize = 10.sp, fontWeight = FontWeight.SemiBold, lineHeight = 12.sp)
         IconBtn(Icons.Rounded.PowerSettingsNew, "Disconnect", tint = C.Text2) { a.disconnect() }
     }
@@ -367,7 +378,7 @@ private fun SideRail(client: SillClient, a: BarActions, rtt: Int?, usb: Boolean)
 
 /** Laptop mode's bar: windows on the left, panels on the right. */
 @Composable
-private fun CompactBar(client: SillClient, a: BarActions, rtt: Int?, usb: Boolean) {
+private fun CompactBar(client: SillClient, a: BarActions, rtt: Int?, link: String) {
     val windows by client.windows.collectAsState()
     val active by client.activeWindow.collectAsState()
     Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
@@ -381,7 +392,7 @@ private fun CompactBar(client: SillClient, a: BarActions, rtt: Int?, usb: Boolea
         IconBtn(Icons.Rounded.Menu, "Mac menus") { client.closeMenus(); a.open(Panel.MENUS) }
         IconBtn(Icons.Rounded.Keyboard, "Keyboard") { a.typing() }
         IconBtn(Icons.Rounded.MoreHoriz, "Settings") { a.open(Panel.SETTINGS) }
-        ConnChip(rtt, usb)
+        ConnChip(rtt, link)
     }
 }
 
@@ -426,6 +437,7 @@ private fun Trackpad(client: SillClient, prefs: Prefs, modifier: Modifier, start
                         val down = awaitPointerEvent()
                         val first = down.changes.firstOrNull { it.pressed } ?: continue
                         val t0 = first.uptimeMillis
+                        client.pointerAt.value?.let { pos = it } // continue from where the Mac's pointer is now
                         var moved = 0f; var dragging = false; var maxFingers = 1; var scrolling = false
                         var last = first.position
                         while (true) {

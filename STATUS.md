@@ -11,7 +11,7 @@ Build and install (tablet on USB, or wireless adb):
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Status as of v0.1.0 (2026-11-25).
+Status as of v0.2.0 (2026-11-25).
 
 ## Verified on the tablet
 - **Connection:** Bonjour discovery (`_sill._tcp`), pairing with the 12-digit code, pinned TLS 1.3 sessions.
@@ -55,6 +55,19 @@ Status as of v0.1.0 (2026-11-25).
   - pinch for Apps, spread for Show Desktop;
   - a three-finger tap shows or hides the bar.
 
+## New in 0.2.0, not yet tried end to end
+- **The Mac's cursor** (kinds 14 and 26): the real cursor image is drawn at its hotspot, at the Mac's size in points.
+  It follows this tablet's input and the Mac's own mouse, and hides when the pointer leaves the picture.
+  Laptop mode's trackpad moves it and continues from where the Mac's pointer is.
+- **Remote access away from home:**
+  - The Mac's signed kind 18 is verified (ECDSA P-256 over the exact info bytes, key equal to the pin, Mac ID
+    matching) and saved only if it is newer.
+  - "Connect from afar" dials the saved addresses in order on the remote port, pinned to the paired key.
+  - The card says what it knows ("From afar: Tailscale", or what to turn on).
+  - The bar's tag reads "Away". An away session that drops reconnects over Wi-Fi if the Mac is on it.
+- Installed on the tablet: the home card shows the Mac's recent picture and "From afar: not set up yet"
+  (Remote Access is off on the test Mac).
+
 ## Known issues
 - **"Always use USB when the cable is in"** doesn't switch over by itself when the USB link comes up; tap
   Connect over USB.
@@ -66,5 +79,3 @@ Status as of v0.1.0 (2026-11-25).
 ## Not built
 - Mac sound (AAC-ELD, kind 43).
 - QR-code pairing.
-- Remote access away from home.
-- Drawing the Mac's own cursor shape (kinds 14 and 26). Laptop mode draws its own pointer.

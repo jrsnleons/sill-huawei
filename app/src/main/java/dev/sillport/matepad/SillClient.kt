@@ -276,6 +276,9 @@ class SillClient(private val saved: SavedMacs, context: android.content.Context)
                     }
                     Kind.MAC_MENU -> onMacMenu(JSONObject(String(m.payload)))
                     Kind.THUMBNAIL -> onThumbnail(m.payload)
+                    Kind.CURSOR_SHAPE -> onCursorShape(m.payload)
+                    Kind.MAC_INFO -> runCatching { onMacInfo(JSONObject(String(m.payload))) }
+                    Kind.MAC_POINTER -> runCatching { onMacPointer(JSONObject(String(m.payload))) }
                     Kind.APP_ICON -> onIcon(m.payload)
                     Kind.APP_LIST -> runCatching { onAppList(JSONArray(String(m.payload))) }
                     Kind.HOST_SETTINGS -> runCatching { onHostSettings(JSONObject(String(m.payload))) }
@@ -543,7 +546,7 @@ class SillClient(private val saved: SavedMacs, context: android.content.Context)
         _windows.value = emptyList()
         clipboardSubscribed = false; menusSubscribed = false
         _menuBar.value = null; _menuPages.value = emptyList(); _clipboardAvailable.value = false
-        _thumbnails.value = emptyMap(); _menuCache.value = emptyMap(); _quality.value = null
+        _thumbnails.value = emptyMap(); _menuCache.value = emptyMap(); _quality.value = null; _pointerAt.value = null
         if (_state.value is ClientState.Streaming || _state.value is ClientState.Reconnecting) _state.value = ClientState.Idle
     }
 
@@ -574,6 +577,86 @@ class SillClient(private val saved: SavedMacs, context: android.content.Context)
         val j = JSONObject().put("width", v.w.coerceIn(1.0, 16384.0)).put("height", v.h.coerceIn(1.0, 16384.0))
             .put("scale", textScale?.coerceIn(0.5, 1.5) ?: JSONObject.NULL).put("fps", minOf(v.fps, wantedFps))
         send(Kind.VIEWPORT, j.toString().toByteArray())
+    }
+
+    // MARK: away from home (kind 18, Remote.swift)
+
+    /**
+     * Kind 18: who this Mac is and how to reach it from afar, signed with its identity key. Kept only
+     * when the signature verifies over the exact info bytes, the key is the one this session is
+     * pinned to, its Mac ID matches, and it is newer than the saved one.
+     */
+    private fun onMacInfo(j: JSONObject) {
+        val pin = target?.pin ?: return
+        val bytes = android.util.Base64.decode(j.getString("info"), android.util.Base64.DEFAULT)
+        val point = android.util.Base64.decode(j.getString("key"), android.util.Base64.DEFAULT)
+        val sig = android.util.Base64.decode(j.getString("sig"), android.util.Base64.DEFAULT)
+        if (point.size != 65) return
+        val spki = byteArrayOf(0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86.toByte(), 0x48, 0xce.toByte(), 0x3d, 0x02, 0x01,
+            0x06, 0x08, 0x2a, 0x86.toByte(), 0x48, 0xce.toByte(), 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00) + point
+        val fp = Pairing.sha256(spki)
+        if (!fp.contentEquals(pin)) { Log.w(tag, "kind 18 signed by another key; ignored"); return }
+        val key = java.security.KeyFactory.getInstance("EC").generatePublic(java.security.spec.X509EncodedKeySpec(spki))
+        val ok = java.security.Signature.getInstance("SHA256withECDSA").run { initVerify(key); update(bytes); verify(sig) }
+        if (!ok) { Log.w(tag, "kind 18 signature doesn't verify; ignored"); return }
+        val text = String(bytes)
+        val id = JSONObject(text).optString("macID")
+        if (id != Pairing.macID(fp)) return
+        saved.saveRemote(id, text)
+        Log.i(tag, "saved how to reach ${JSONObject(text).optString("name")} from afar")
+    }
+
+    /**
+     * Away from home: the Mac's remote door (Remote Access on), at the addresses it last sent while
+     * this tablet was home (Tailscale first, in the Mac's dial order), pinned to the paired key.
+     */
+    fun connectAway(mac: SavedMac) {
+        disconnect()
+        scope.launch {
+            val info = saved.remote(mac.macID)
+            if (info == null || !info.remoteAccess || info.addresses.isEmpty()) {
+                _state.value = ClientState.Failed("${mac.name} hasn't told this tablet how to reach it from afar. Turn on Remote Access in Sill on the Mac, then connect once at home.")
+                return@launch
+            }
+            var last: Exception? = null
+            for ((host, port, via) in info.addresses) {
+                try {
+                    _state.value = ClientState.Working("Reaching ${mac.name} through $via…")
+                    openSession(FoundMac(mac.name, host, port ?: info.port, Door.PAIRING_REQUIRED, away = true), plain = false, pin = mac.fingerprint, quiet = true)
+                    return@launch
+                } catch (e: kotlinx.coroutines.CancellationException) { return@launch
+                } catch (e: PinMismatch) {
+                    _state.value = ClientState.Failed("Something at $host answered with a different key than ${mac.name}. Not connected."); return@launch
+                } catch (e: Exception) { last = e; Log.i(tag, "away via $via ($host) failed: ${e.message}") }
+            }
+            _state.value = ClientState.Failed(
+                "Couldn't reach ${mac.name} from here. Check that Tailscale is on on this tablet and that the Mac is awake with Remote Access on." +
+                    (last?.message?.let { "\n($it)" } ?: ""))
+        }
+    }
+
+    // MARK: the Mac's cursor (kinds 14 and 26)
+
+    /** The Mac's current cursor image, with its hotspot and size in points (the Mac leaves it out of the video). */
+    data class CursorShape(val image: android.graphics.Bitmap, val hotX: Float, val hotY: Float, val w: Float, val h: Float)
+    private val _cursorShape = MutableStateFlow<CursorShape?>(null)
+    val cursorShape: StateFlow<CursorShape?> = _cursorShape
+    /** Where the pointer is, as a fraction of the picture: from this tablet's own input, or the Mac's report. Null: hidden. */
+    private val _pointerAt = MutableStateFlow<Pair<Float, Float>?>(null)
+    val pointerAt: StateFlow<Pair<Float, Float>?> = _pointerAt
+
+    private fun onCursorShape(d: ByteArray) {
+        if (d.size <= 16) return
+        val b = java.nio.ByteBuffer.wrap(d, 0, 16)
+        val hx = b.float; val hy = b.float; val w = b.float; val h = b.float
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(d, 16, d.size - 16) ?: return
+        if (w > 0f && h > 0f) _cursorShape.value = CursorShape(bmp, hx, hy, w, h)
+    }
+
+    /** Kind 26: the Mac's own mouse (or another device) moved the pointer. */
+    private fun onMacPointer(j: JSONObject) {
+        val inside = j.optBoolean("inside", false)
+        _pointerAt.value = if (inside && j.has("x") && j.has("y")) j.getDouble("x").toFloat() to j.getDouble("y").toFloat() else null
     }
 
     // MARK: the switcher's pictures, the Mac's apps, window actions, quality
@@ -633,8 +716,10 @@ class SillClient(private val saved: SavedMacs, context: android.content.Context)
     fun selectWindow(id: Long) { send(Kind.SELECT_SOURCE, """{"window":{"_0":$id}}""".toByteArray()); _activeWindow.value = id }
 
     /** x and y are fractions of the video frame, 0…1. */
-    fun pointer(action: String, x: Double, y: Double) =
+    fun pointer(action: String, x: Double, y: Double) = run {
+        _pointerAt.value = x.toFloat() to y.toFloat()
         input(JSONObject().put("pointer", JSONObject().put("_0", action).put("x", x).put("y", y)))
+    }
 
     fun scroll(x: Double, y: Double, dx: Double, dy: Double) =
         input(JSONObject().put("scroll", JSONObject().put("x", x).put("y", y).put("dx", dx).put("dy", dy)))

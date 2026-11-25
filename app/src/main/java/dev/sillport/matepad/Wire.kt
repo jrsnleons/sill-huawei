@@ -33,6 +33,9 @@ object Kind {
     const val LAUNCH_APP = 7
     const val WINDOW_COMMAND = 15
     const val CHANGE_SETTINGS = 17
+    const val CURSOR_SHAPE = 14
+    const val MAC_POINTER = 26
+    const val MAC_INFO = 18
 }
 
 class Message(val kind: Int, val timestamp: Double, val isKeyframe: Boolean, val payload: ByteArray)

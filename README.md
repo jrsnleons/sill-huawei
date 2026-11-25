@@ -38,6 +38,16 @@ The release APK is debug-signed and meant for sideloading.
 
 Run `./sill-usb.sh` on the Mac and leave it open. It keeps `adb reverse` forwarding the tablet's `127.0.0.1:47455` to Sill's port on the Mac. The app then offers "Connect over USB". Pair over Wi-Fi once first.
 
+## Away from home
+
+Sill for Mac can be reached from outside your home network through Tailscale, or through a port you forward on your router (7455 by default).
+
+1. On the Mac, turn on Remote Access in Sill's settings.
+2. Connect the tablet once at home, over Wi-Fi or USB. The Mac sends a signed note saying how to reach it from afar. The tablet checks the signature against the key it paired with before saving it. Its card then reads, for example, "From afar: Tailscale".
+3. Away from home, with Tailscale running on the tablet, tap "Connect from afar". The app tries the Mac's addresses in the Mac's own order, using the same pinned encryption as at home. The bar's connection tag reads "Away".
+
+Away from home, Sill for Mac starts at a lower quality so a slow link doesn't stall; raise it in Settings. If an away session drops and the Mac is back on your Wi-Fi, the app reconnects over Wi-Fi.
+
 ## Features
 
 - Hardware HEVC decoding on the Kirin decoder, with a low-latency fallback ladder for decoders that refuse low-latency mode.
@@ -52,12 +62,15 @@ Run `./sill-usb.sh` on the Mac and leave it open. It keeps `adb reverse` forward
 - Settings: quality, resolution, 60 or 120 fps, text size, reverse scrolling.
 - Automatic reconnect after sleep or Wi-Fi changes, with path diagnostics.
 - USB cable mode.
+- Remote access away from home (Tailscale or a forwarded port).
+- The Mac's own cursor, drawn over the picture in its real shape (arrow, I-beam, hand), following both the tablet's input and the Mac's mouse.
+- A recent picture of each Mac on the home screen.
 
 ## Known limits
 
 - No Mac audio yet.
 - No QR code pairing.
-- No remote access away from home yet.
+- Remote access is new in 0.2.0 and not yet tested end to end.
 - The "always use USB" automatic switch is not reliable yet.
 - Huawei's three-finger screenshot gesture may intercept the three-finger swipe down.
 

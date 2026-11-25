@@ -122,8 +122,12 @@ fun ConnectScreen(client: SillClient, discovery: Discovery, saved: SavedMacs, pr
                             macs.filter { m -> pairedNames.none { m.name == it || m.name.startsWith("$it (") } }.map { it.name to it })
                         if (rows.isEmpty()) Text("Looking for Sill for Mac on this Wi-Fi…", color = C.Text2, fontSize = 15.sp)
                         rows.forEach { (name, found) ->
+                            val savedMac = saved.all().firstOrNull { it.name == name }
+                            val remote = savedMac?.let { saved.remote(it.macID) }
                             MacCard(name, found, paired = name in pairedNames, lastUsed = prefs.lastUsed(name), usbUp = usb.tunnel,
-                                onConnect = { found?.let { client.connect(it) } }, onUsb = { client.connectUsb() })
+                                remote = remote,
+                                onConnect = { found?.let { client.connect(it) } }, onUsb = { client.connectUsb() },
+                                onAway = { savedMac?.let { client.connectAway(it) } })
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             SecondaryButton("Connect by address", icon = Icons.Rounded.Add) { showAddress = true }
@@ -141,7 +145,9 @@ fun ConnectScreen(client: SillClient, discovery: Discovery, saved: SavedMacs, pr
 }
 
 @Composable
-private fun MacCard(name: String, found: FoundMac?, paired: Boolean, lastUsed: Long, usbUp: Boolean, onConnect: () -> Unit, onUsb: () -> Unit) {
+private fun MacCard(name: String, found: FoundMac?, paired: Boolean, lastUsed: Long, usbUp: Boolean, remote: RemoteInfo?,
+                    onConnect: () -> Unit, onUsb: () -> Unit, onAway: () -> Unit) {
+    val awayReady = paired && remote != null && remote.remoteAccess && remote.addresses.isNotEmpty()
     val snap = remember(name) { Snapshots.load(name) }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(C.Card).padding(16.dp),
@@ -166,8 +172,16 @@ private fun MacCard(name: String, found: FoundMac?, paired: Boolean, lastUsed: L
                 if (found != null) {
                     if (paired && usbUp) SecondaryButton("Wi-Fi", onClick = onConnect)
                     else PrimaryButton(if (paired) "Connect" else "Pair", onClick = onConnect)
-                }
+                } else if (awayReady && !usbUp) PrimaryButton("Connect from afar", onClick = onAway)
+                if (found != null && awayReady) SecondaryButton("From afar", onClick = onAway)
             }
+            // Away from home: what the Mac told this tablet, or what's missing.
+            if (paired) Text(
+                when {
+                    awayReady -> "From afar: " + remote!!.addresses.map { it.third.ifEmpty { it.first } }.distinct().joinToString(", ")
+                    remote != null && !remote.remoteAccess -> "From afar: off. Turn on Remote Access in Sill on the Mac."
+                    else -> "From afar: not set up yet. Turn on Remote Access in Sill on the Mac, then connect once at home."
+                }, color = C.Text2, fontSize = 12.sp)
         }
     }
 }

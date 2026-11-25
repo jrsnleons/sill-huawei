@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 /** How a Mac's home door speaks, from its Bonjour TXT `p` (HomeDoorTXT in Pairing.swift). */
 enum class Door { PLAIN, PAIRING_REQUIRED, OPEN }
 
-data class FoundMac(val name: String, val host: String, val port: Int, val door: Door)
+data class FoundMac(val name: String, val host: String, val port: Int, val door: Door, val away: Boolean = false)
 
 /** Finds Sill for Mac on the local network: Bonjour `_sill._tcp`. */
 class Discovery(context: Context) {
