@@ -1,0 +1,10 @@
+research/
+build/
+app/build/
+.gradle/
+local.properties
+*.iml
+.idea/
+.DS_Store
+.kotlin/
+progress.sh

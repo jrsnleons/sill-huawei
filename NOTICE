@@ -1,0 +1,15 @@
+Sill for Huawei MatePad Mini
+
+This project is an unofficial, independent port. It is not affiliated with,
+sponsored by, or endorsed by the authors of Sill or by Huawei.
+
+It is a clean reimplementation of a client for Sill (https://github.com/Saffsanity/sill),
+licensed under the Apache License 2.0. The wire protocol, the pairing scheme and the
+overall design that this client reimplements come from the upstream Sill project. Sill for
+Mac is used unmodified; this repository contains only a new Android client.
+
+Sill is a trademark or project name of its respective authors. "Huawei", "MatePad" and
+"HarmonyOS" are trademarks of Huawei Technologies Co., Ltd., used here only to describe
+the supported device.
+
+This work is licensed under the Apache License 2.0 (see LICENSE).
